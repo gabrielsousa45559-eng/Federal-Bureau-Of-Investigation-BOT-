@@ -1,6 +1,6 @@
 require('dotenv').config();
 const {
-  Client, GatewayIntentBits, Partials, Events, ModalBuilder, TextInputBuilder, TextInputStyle,
+  Client, GatewayIntentBits, Partials, Events, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder, StringSelectMenuBuilder,
   ActionRowBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, AttachmentBuilder
 } = require('discord.js');
 const { db, getSettings, setSetting, audit, createRequest, scheduleRoleRemoval } = require('./store');
@@ -134,7 +134,15 @@ client.on(Events.InteractionCreate, async interaction => {
       if (interaction.commandName === 'painel') {
         const type = interaction.options.getString('tipo');
         if (type !== 'absence' && !interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) return interaction.reply({ content: 'Apenas a administração pode publicar este painel.', ephemeral: true });
-        const configured = type === 'promotion' && (getSettings(interaction.guildId).promotionRequestChannelId || process.env.PROMOTION_REQUEST_CHANNEL_ID);
+        const settings = getSettings(interaction.guildId);
+        const panelTargets = {
+          registration: settings.registrationRequestChannelId || process.env.REGISTRATION_REQUEST_CHANNEL_ID,
+          promotion: settings.promotionRequestChannelId || process.env.PROMOTION_REQUEST_CHANNEL_ID,
+          tickets: settings.ticketPanelChannelId || process.env.TICKET_PANEL_CHANNEL_ID,
+          absence: settings.absenceRequestChannelId || process.env.ABSENCE_REQUEST_CHANNEL_ID,
+          discipline: settings.warningReviewChannelId || process.env.WARNING_REVIEW_CHANNEL_ID
+        };
+        const configured = panelTargets[type];
         const channel = interaction.options.getChannel('canal') || (configured && await interaction.guild.channels.fetch(configured).catch(() => null)) || interaction.channel;
         await channel.send(panelPayload(type));
         await sendLog(interaction.guild, 'painel publicado', interaction.user.id, null, `${type} em ${channel.id}`);
@@ -193,7 +201,21 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (interaction.isButton()) {
       const id = interaction.customId;
-      if (id === 'panel:registration') return interaction.showModal(modal('form:registration', 'Registro de membro', [field('nome', 'Nome', TextInputStyle.Short, true, 'Nome completo'), field('id', 'ID ou passaporte', TextInputStyle.Short, true, 'Ex.: 16629'), field('cargo', 'Cargo: probatorio, campo1, campo2, campo3 ou especial1', TextInputStyle.Short, true, 'Ex.: campo1')]));
+      if (id === 'panel:registration') {
+        const registrationModal = new ModalBuilder().setCustomId('form:registration').setTitle('Registro FBI');
+        registrationModal.addLabelComponents(
+          new LabelBuilder().setLabel('Nome completo').setTextInputComponent(new TextInputBuilder().setCustomId('nome').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80).setPlaceholder('Digite seu nome')),
+          new LabelBuilder().setLabel('ID / passaporte').setTextInputComponent(new TextInputBuilder().setCustomId('id').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20).setPlaceholder('Ex.: 16629')),
+          new LabelBuilder().setLabel('Cargo pretendido').setStringSelectMenuComponent(new StringSelectMenuBuilder().setCustomId('cargo').setPlaceholder('Selecione uma função').addOptions(
+            { label: 'Agente Especial Probatório', value: 'probatorio', description: 'Ingresso e formação inicial' },
+            { label: 'Agente de Campo — Nível I', value: 'campo1', description: 'Atuação de campo, nível I' },
+            { label: 'Agente de Campo — Nível II', value: 'campo2', description: 'Atuação de campo, nível II' },
+            { label: 'Agente de Campo — Nível III', value: 'campo3', description: 'Atuação de campo, nível III' },
+            { label: 'Agente Especial — Nível I', value: 'especial1', description: 'Função especial, nível I' }
+          ))
+        );
+        return interaction.showModal(registrationModal);
+      }
       if (id === 'panel:absence') return interaction.showModal(modal('form:absence', 'Solicitar ausência', [field('inicio', 'Início da ausência', TextInputStyle.Short, true, 'Ex.: 10/11/2026'), field('fim', 'Fim da ausência', TextInputStyle.Short, true, 'Ex.: 15/11/2026'), field('motivo', 'Motivo', TextInputStyle.Paragraph)]));
       if (id === 'panel:promotion') return interaction.showModal(modal('form:promotion', 'Solicitar promoção', [field('nome', 'Nome', TextInputStyle.Short), field('id', 'ID ou passaporte', TextInputStyle.Short), field('patente', 'Patente desejada', TextInputStyle.Short), field('justificativa', 'Justificativa', TextInputStyle.Paragraph)]));
       if (id === 'panel:discipline') {
@@ -319,7 +341,10 @@ client.on(Events.InteractionCreate, async interaction => {
         const data = { inicio: interaction.fields.getTextInputValue('inicio'), fim: interaction.fields.getTextInputValue('fim'), motivo: interaction.fields.getTextInputValue('motivo') };
         const details = `**Membro:** <@${interaction.user.id}>\n**ID Discord:** \`${interaction.user.id}\`\n**Início:** ${safe(data.inicio)}\n**Fim:** ${safe(data.fim)}\n**Motivo:** ${safe(data.motivo)}`;
         const request = await routeToChannel(interaction, 'absenceRequestChannelId', 'ABSENCE_REQUEST_CHANNEL_ID', { embeds: [branded('🌴 ┃ Ausência Declarada (LOA) • Solicitação', details)], allowedMentions: { users: [] } });
-        const record = await routeToChannel(interaction, 'absenceChannelId', 'ABSENCE_CHANNEL_ID', { embeds: [branded('🌴 ┃ Ausência Declarada (LOA) • Registro', details)], allowedMentions: { users: [] } });
+        const requestChannelId = settings.absenceRequestChannelId || process.env.ABSENCE_REQUEST_CHANNEL_ID;
+        const recordChannelId = settings.absenceChannelId || process.env.ABSENCE_CHANNEL_ID;
+        const record = requestChannelId && requestChannelId === recordChannelId ? { sent: false }
+          : await routeToChannel(interaction, 'absenceChannelId', 'ABSENCE_CHANNEL_ID', { embeds: [branded('🌴 ┃ Ausência Declarada (LOA) • Registro', details)], allowedMentions: { users: [] } });
         const settings = getSettings(interaction.guildId);
         const loaRoleId = settings.absenceRoleId || process.env.ABSENCE_ROLE_ID || '1568855402475552840';
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
@@ -336,6 +361,7 @@ client.on(Events.InteractionCreate, async interaction => {
       if (id === 'form:registration' || id === 'form:promotion') {
         const kind = id.split(':')[1];
         const data = Object.fromEntries(interaction.fields.fields.map(f => [f.customId, f.value]));
+        if (kind === 'registration') data.cargo = interaction.fields.getStringSelectValues('cargo')[0];
         const labels = { nome: 'Nome', id: 'ID/passaporte', cargo: 'Cargo pretendido', patente: 'Patente desejada', justificativa: 'Justificativa' };
         if (kind === 'registration') {
           const roles = {

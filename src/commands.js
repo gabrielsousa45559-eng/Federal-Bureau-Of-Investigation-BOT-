@@ -8,12 +8,13 @@ const commands = [
     .addStringOption(o => o.setName('chave').setDescription('Item a configurar').setRequired(true).addChoices(
       { name: 'Canal de quarentena (ban automático)', value: 'quarantineChannelId' }, { name: 'Canal de logs', value: 'logChannelId' },
       { name: 'Canal de análise de registros', value: 'registrationReviewChannelId' }, { name: 'Canal de análise de promoções', value: 'promotionReviewChannelId' },
+      { name: 'Canal do painel de registro', value: 'registrationRequestChannelId' },
       { name: 'Canal para solicitar promoção', value: 'promotionRequestChannelId' },
       { name: 'Canal para solicitar ausência', value: 'absenceRequestChannelId' }, { name: 'Canal de registro de ausências', value: 'absenceChannelId' },
       { name: 'Cargo aplicado durante ausência (LOA)', value: 'absenceRoleId' },
       { name: 'Canal de análise disciplinar', value: 'warningReviewChannelId' }, { name: 'Categoria de tickets', value: 'ticketCategoryId' },
       { name: 'Canal do painel de tickets', value: 'ticketPanelChannelId' }, { name: 'Cargo da equipe de tickets', value: 'ticketStaffRoleId' },
-      { name: 'Cargo base FBI', value: 'baseFbiRoleId' }, { name: 'Cargo de membro aprovado', value: 'memberRoleId' },
+      { name: 'Cargo base FBI', value: 'baseFbiRoleId' },
       { name: 'Cargo Agente Especial Probatório', value: 'probationaryAgentRoleId' },
       { name: 'Cargo Agente de Campo Nível 1', value: 'fieldAgent1RoleId' },
       { name: 'Cargo Agente de Campo Nível 2', value: 'fieldAgent2RoleId' },
@@ -43,8 +44,9 @@ const commands = [
       { name: 'Advertência 1 (1 a 3 dias)', value: '1' }, { name: 'Advertência 2 (3 a 10 dias)', value: '2' },
       { name: 'Advertência 3 (afastamento de 7 dias)', value: '3' }, { name: 'Exoneração', value: 'exoneracao' }
     ))
+    .addStringOption(o => o.setName('motivo').setDescription('Motivo da medida').setRequired(true))
     .addIntegerOption(o => o.setName('dias').setDescription('Duração em dias (nível 1: 1–3; nível 2: 3–10)').setMinValue(1).setMaxValue(10))
-    .addStringOption(o => o.setName('motivo').setDescription('Motivo da medida').setRequired(true)),
+    ,
   new SlashCommandBuilder().setName('ticket').setDescription('Abre um ticket privado.')
     .addStringOption(o => o.setName('categoria').setDescription('Tipo de atendimento').setRequired(true).addChoices(
       { name: 'Suporte', value: 'suporte' }, { name: 'Corregedoria', value: 'corregedoria' }, { name: 'Recorrer punição', value: 'recurso' }
@@ -56,7 +58,8 @@ const commands = [
 
 function panelPayload(type) {
   if (type === 'registration') return {
-    files: brandFiles(), embeds: [branded('Registro de Membros', 'Clique para enviar seus dados para análise. Escolha uma função: Agente Especial Probatório, Agente de Campo Nível 1, Agente de Campo Nível 2, Agente de Campo Nível 3 ou Agente Especial Nível 1.\n\n**Dados solicitados:** nome e ID/passaporte.')],
+    files: [...brandFiles(), { attachment: require('node:path').join(__dirname, '..', 'assets-fbi-registration-banner.png'), name: 'assets-fbi-registration-banner.png' }],
+    embeds: [branded('REGISTRO FBI', 'Inicie seu cadastro na unidade. Informe seu nome e passaporte, selecione a função desejada e aguarde a análise da equipe.\n\n**Funções disponíveis**\nAgente Especial Probatório\nAgente de Campo — Níveis I, II e III\nAgente Especial — Nível I').setImage('attachment://assets-fbi-registration-banner.png')],
     components: [new ActionRowBuilder().addComponents(button('panel:registration', 'Iniciar registro', ButtonStyle.Primary, '📝'))]
   };
   if (type === 'promotion') return {

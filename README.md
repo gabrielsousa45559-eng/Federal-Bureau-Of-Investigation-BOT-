@@ -11,7 +11,7 @@ Bot para comunidade temática do **Federal Bureau of Investigation (FBI)**, em N
 5. Convide o bot com os escopos `bot` e `applications.commands`. Conceda apenas permissões necessárias: View Channels, Send Messages, Embed Links, Attach Files, Read Message History, Manage Channels, Manage Roles, Ban Members e Moderate Members. Posicione o cargo do bot acima dos cargos que ele precisa gerenciar.
 6. Execute `npm run deploy` e depois `npm start`. No Windows, use `Deploy-Commands.bat` e `Start.bat`.
 
-Atalhos: `Start.bat` inicia o bot; `Deploy-Commands.bat` publica os comandos slash; `Upload-to-GitHub.bat` prepara um commit, pede confirmação e envia ao repositório configurado. O upload verifica que `.env` está ignorado e não o inclui.
+Atalhos: `Start.bat` inicia o bot; `Deploy-Commands.bat` publica os comandos slash; `npm run panels` atualiza os painéis nos canais configurados; `Upload-to-GitHub.bat` prepara um commit, pede confirmação e envia ao repositório configurado. O upload verifica que `.env` está ignorado e não o inclui.
 
 O registro dos comandos em `GUILD_ID` costuma aparecer rapidamente no servidor de desenvolvimento. Para publicar globalmente, remova `GUILD_ID` do ambiente e rode `npm run deploy` novamente.
 

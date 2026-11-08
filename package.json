@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "start:win": "node src/index.js",
-    "deploy": "node src/deploy-commands.js"
+    "deploy": "node src/deploy-commands.js",
+    "panels": "node src/publish-panels.js"
   },
   "engines": { "node": ">=20.0.0" },
   "dependencies": {
