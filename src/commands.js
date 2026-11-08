@@ -32,11 +32,9 @@ const commands = [
       { name: 'Registro', value: 'registration' }, { name: 'Solicitar promoção', value: 'promotion' },
       { name: 'Tickets', value: 'tickets' }, { name: 'Advertência e disciplina', value: 'discipline' }, { name: 'Ausência', value: 'absence' }
     )).addChannelOption(o => o.setName('canal').setDescription('Canal de destino (opcional)').addChannelTypes(ChannelType.GuildText)),
-  new SlashCommandBuilder().setName('acao').setDescription('Publica uma ação com lista de presença, sem aprovação.')
-    .addStringOption(o => o.setName('nome').setDescription('Nome da ação').setRequired(true))
-    .addStringOption(o => o.setName('horario').setDescription('Data e horário com fuso, ex.: 10/11 às 20h (BRT)').setRequired(true))
-    .addIntegerOption(o => o.setName('contingente').setDescription('Número máximo de participantes').setRequired(true).setMinValue(1).setMaxValue(2000))
-    .addChannelOption(o => o.setName('canal').setDescription('Canal de divulgação (opcional)').addChannelTypes(ChannelType.GuildText)),
+  new SlashCommandBuilder().setName('acao').setDescription('Abre o formulário e publica um painel de ação com presenças.')
+    .addChannelOption(o => o.setName('canal').setDescription('Canal onde o painel da ação será publicado').setRequired(true).addChannelTypes(ChannelType.GuildText)),
+  new SlashCommandBuilder().setName('promocao').setDescription('Abre o formulário para solicitar promoção.'),
   new SlashCommandBuilder().setName('ausencia').setDescription('Abre o formulário de solicitação de ausência.'),
   new SlashCommandBuilder().setName('advertir').setDescription('Solicita aplicação de advertência ou exoneração.').setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption(o => o.setName('membro').setDescription('Membro alvo').setRequired(true))

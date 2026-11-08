@@ -1,7 +1,7 @@
 require('dotenv').config();
 const {
   Client, GatewayIntentBits, Partials, Events, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder, StringSelectMenuBuilder,
-  ActionRowBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, AttachmentBuilder
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, AttachmentBuilder
 } = require('discord.js');
 const { db, getSettings, setSetting, audit, createRequest, scheduleRoleRemoval } = require('./store');
 const { branded, brandFiles, embed, button, isApprover, safe, colors } = require('./ui');
@@ -23,6 +23,21 @@ function parseAbsenceEnd(value) {
   if (match) return new Date(Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1]), 23, 59, 59));
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+function actionDescription(action, attendees) {
+  const roster = attendees.length
+    ? attendees.map((person, index) => `**${index + 1}. ${safe(person.name)}** • Passaporte: \`${safe(person.passport)}\` • Discord: <@${person.userId}> (\`${person.userId}\`)`).join('\n')
+    : '_Ainda não há presenças confirmadas._';
+  return `**HORÁRIO**\n${safe(action.time)}\n\n**CONTINGENTE**\n${attendees.length}/${action.capacity} vagas\n\n**PRESENÇAS CONFIRMADAS**\n${roster}`;
+}
+function actionAttendanceRow(messageId, count, capacity) {
+  const full = count >= capacity;
+  return new ActionRowBuilder().addComponents(new ButtonBuilder()
+    .setCustomId(`attendance:${messageId}`)
+    .setLabel(full ? 'Contingente completo' : 'Confirmar presença')
+    .setStyle(full ? ButtonStyle.Secondary : ButtonStyle.Success)
+    .setEmoji(full ? '🔒' : '✅')
+    .setDisabled(full));
 }
 async function sendLog(guild, event, actorId, subjectId, details = '') {
   audit(guild.id, event, actorId, subjectId, details);
@@ -149,18 +164,14 @@ client.on(Events.InteractionCreate, async interaction => {
         return interaction.reply({ content: `Painel publicado em ${channel}.`, ephemeral: true });
       }
       if (interaction.commandName === 'acao') {
-        const name = interaction.options.getString('nome');
-        const time = interaction.options.getString('horario');
-        const capacity = interaction.options.getInteger('contingente');
-        const target = interaction.options.getChannel('canal');
-        const channel = target || interaction.channel;
-        const data = { nome: name, horario: time, contingente: capacity };
-        const msg = await channel.send({ embeds: [branded(`📋 ${name}`, `**Horário:** ${safe(time)}\n**Contingente:** 0/${capacity}\n**Presenças:**\n_Nenhuma presença confirmada._`)], components: [new ActionRowBuilder().addComponents(button('attendance:pending', 'Adicionar presença', ButtonStyle.Success, '✅'))] });
-        await msg.edit({ components: [new ActionRowBuilder().addComponents(button(`attendance:${msg.id}`, 'Adicionar presença', ButtonStyle.Success, '✅'))] });
-        db.prepare('INSERT INTO actions(message_id,guild_id,creator_id,name,time,capacity,status) VALUES(?,?,?,?,?,? ,\'published\')').run(msg.id, interaction.guildId, interaction.user.id, name, time, capacity);
-        await sendLog(interaction.guild, 'ação publicada', interaction.user.id, null, `${name} • ${time} • ${capacity} vagas`);
-        return interaction.reply({ content: `Ação publicada em ${channel}; presença aberta para os agentes.`, ephemeral: true });
+        const channel = interaction.options.getChannel('canal', true);
+        return interaction.showModal(modal(`action_create:${channel.id}`, 'Criar painel de ação', [
+          field('nome', 'Nome da ação', TextInputStyle.Short, true, 'Ex.: Operação Alfa'),
+          field('horario', 'Data e horário', TextInputStyle.Short, true, 'Ex.: 10/11 às 20h (BRT)'),
+          field('contingente', 'Contingente máximo', TextInputStyle.Short, true, 'Ex.: 24')
+        ]));
       }
+      if (interaction.commandName === 'promocao') return interaction.showModal(modal('form:promotion', 'Solicitar promoção', [field('nome', 'Nome', TextInputStyle.Short), field('id', 'ID ou passaporte', TextInputStyle.Short), field('patente', 'Patente desejada', TextInputStyle.Short), field('justificativa', 'Justificativa', TextInputStyle.Paragraph)]));
       if (interaction.commandName === 'ausencia') {
         return interaction.showModal(modal('form:absence', 'Solicitar ausência', [field('inicio', 'Início da ausência', TextInputStyle.Short, true, 'Ex.: 10/11/2026'), field('fim', 'Fim da ausência', TextInputStyle.Short, true, 'Ex.: 15/11/2026'), field('motivo', 'Motivo', TextInputStyle.Paragraph)]));
       }
@@ -304,48 +315,83 @@ client.on(Events.InteractionCreate, async interaction => {
         const action = db.prepare('SELECT * FROM actions WHERE message_id=?').get(actionMessageId);
         if (!action || action.status !== 'published') return interaction.reply({ content: 'Esta ação não está disponível.', ephemeral: true });
         const attendees = JSON.parse(action.attendees);
+        if (attendees.length >= action.capacity) {
+          await interaction.update({ components: [actionAttendanceRow(actionMessageId, attendees.length, action.capacity)] });
+          return;
+        }
         const idx = attendees.findIndex(a => a.userId === interaction.user.id);
-        if (idx >= 0) attendees.splice(idx, 1);
+        if (idx >= 0) {
+          await interaction.deferUpdate();
+          attendees.splice(idx, 1);
+        }
         else {
-          if (attendees.length >= action.capacity) return interaction.reply({ content: 'O contingente desta ação já foi atingido.', ephemeral: true });
-          return interaction.showModal(modal(`attendance_form:${actionMessageId}`, 'Confirmar presença', [field('passport', 'Seu ID ou passaporte', TextInputStyle.Short, true, 'Ex.: 1024')]));
+          return interaction.showModal(modal(`attendance_form:${actionMessageId}`, 'Confirmar presença', [
+            field('name', 'Seu nome', TextInputStyle.Short, true, 'Nome e sobrenome'),
+            field('passport', 'Seu ID ou passaporte', TextInputStyle.Short, true, 'Ex.: 1024')
+          ]));
         }
         db.prepare('UPDATE actions SET attendees=? WHERE message_id=?').run(JSON.stringify(attendees), actionMessageId);
-        const desc = `**Horário:** ${safe(action.time)}\n**Contingente:** ${attendees.length}/${action.capacity}\n**Presenças:**\n${attendees.length ? attendees.map((a, i) => `**${i + 1}.** <@${a.userId}> • passaporte ${safe(a.passport)} • ID Discord \`${a.userId}\``).join('\n') : '_Nenhuma presença confirmada._'}`;
-        await interaction.message.edit({ embeds: [branded(`📋 ${action.name}`, desc)], components: interaction.message.components });
+        await interaction.message.edit({ embeds: [branded(`📋 ${action.name}`, actionDescription(action, attendees))], components: [actionAttendanceRow(actionMessageId, attendees.length, action.capacity)] });
         await sendLog(interaction.guild, 'presença removida', interaction.user.id, interaction.user.id, action.name);
-        return interaction.reply({ content: 'Sua presença foi removida.', ephemeral: true });
+        return interaction.followUp({ content: 'Sua presença foi removida.', ephemeral: true });
       }
     }
 
     if (interaction.isModalSubmit()) {
       const id = interaction.customId;
+      if (id.startsWith('action_create:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const channelId = id.split(':')[1];
+        const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+        if (!channel?.isTextBased()) return interaction.editReply({ content: 'O canal escolhido não está disponível.' });
+        const name = interaction.fields.getTextInputValue('nome').trim();
+        const time = interaction.fields.getTextInputValue('horario').trim();
+        const capacity = Number.parseInt(interaction.fields.getTextInputValue('contingente').trim(), 10);
+        if (!Number.isInteger(capacity) || capacity < 1 || capacity > 2000) return interaction.editReply({ content: 'Informe um contingente entre 1 e 2000.' });
+        const action = { name, time, capacity };
+        const attendees = [];
+        const msg = await channel.send({
+          files: brandFiles(),
+          embeds: [branded(`📋 ${name}`, actionDescription(action, attendees))]
+        });
+        db.prepare("INSERT INTO actions(message_id,guild_id,creator_id,name,time,capacity,attendees,status) VALUES(?,?,?,?,?,?,?,'published')")
+          .run(msg.id, interaction.guildId, interaction.user.id, name, time, capacity, JSON.stringify(attendees));
+        await msg.edit({ components: [actionAttendanceRow(msg.id, attendees.length, capacity)] });
+        await sendLog(interaction.guild, 'painel de ação publicado', interaction.user.id, null, `${name} • ${time} • contingente ${capacity} • canal ${channel.id}`);
+        return interaction.editReply({ content: `Painel **${safe(name)}** publicado em ${channel}. Qualquer pessoa poderá confirmar presença no botão.` });
+      }
       if (id.startsWith('attendance_form:')) {
+        await interaction.deferReply({ ephemeral: true });
         const messageId = id.split(':')[1];
         const action = db.prepare("SELECT * FROM actions WHERE message_id=? AND status='published'").get(messageId);
-        if (!action) return interaction.reply({ content: 'Esta ação não está mais disponível.', ephemeral: true });
+        if (!action) return interaction.editReply({ content: 'Esta ação não está mais disponível.' });
         const attendees = JSON.parse(action.attendees);
-        if (attendees.some(a => a.userId === interaction.user.id)) return interaction.reply({ content: 'Sua presença já foi registrada.', ephemeral: true });
-        if (attendees.length >= action.capacity) return interaction.reply({ content: 'O contingente desta ação já foi atingido.', ephemeral: true });
+        if (attendees.some(a => a.userId === interaction.user.id)) return interaction.editReply({ content: 'Sua presença já foi registrada.' });
+        if (attendees.length >= action.capacity) {
+          const fullChannel = await interaction.guild.channels.fetch(interaction.channelId).catch(() => null);
+          const fullMessage = fullChannel && await fullChannel.messages.fetch(messageId).catch(() => null);
+          if (fullMessage) await fullMessage.edit({ components: [actionAttendanceRow(messageId, attendees.length, action.capacity)] });
+          return interaction.editReply({ content: 'O contingente desta ação já foi atingido; as inscrições foram encerradas.' });
+        }
+        const name = interaction.fields.getTextInputValue('name').trim();
         const passport = interaction.fields.getTextInputValue('passport').trim();
-        attendees.push({ userId: interaction.user.id, passport });
+        attendees.push({ userId: interaction.user.id, name, passport });
         db.prepare('UPDATE actions SET attendees=? WHERE message_id=?').run(JSON.stringify(attendees), messageId);
         const channel = await interaction.guild.channels.fetch(interaction.channelId);
         const message = await channel.messages.fetch(messageId);
-        const desc = `**Horário:** ${safe(action.time)}\n**Contingente:** ${attendees.length}/${action.capacity}\n**Presenças:**\n${attendees.map((a, i) => `**${i + 1}.** <@${a.userId}> • passaporte ${safe(a.passport)} • ID Discord \`${a.userId}\``).join('\n')}`;
-        await message.edit({ embeds: [branded(`📋 ${action.name}`, desc)] });
-        await sendLog(interaction.guild, 'presença confirmada', interaction.user.id, interaction.user.id, `${action.name} • passaporte ${passport}`);
-        return interaction.reply({ content: 'Presença confirmada e adicionada ao painel.', ephemeral: true });
+        await message.edit({ embeds: [branded(`📋 ${action.name}`, actionDescription(action, attendees))], components: [actionAttendanceRow(messageId, attendees.length, action.capacity)] });
+        await sendLog(interaction.guild, 'presença confirmada', interaction.user.id, interaction.user.id, `${action.name} • ${name} • passaporte ${passport}`);
+        return interaction.editReply({ content: 'Presença confirmada e adicionada ao painel.' });
       }
       if (id === 'form:absence') {
         const data = { inicio: interaction.fields.getTextInputValue('inicio'), fim: interaction.fields.getTextInputValue('fim'), motivo: interaction.fields.getTextInputValue('motivo') };
         const details = `**Membro:** <@${interaction.user.id}>\n**ID Discord:** \`${interaction.user.id}\`\n**Início:** ${safe(data.inicio)}\n**Fim:** ${safe(data.fim)}\n**Motivo:** ${safe(data.motivo)}`;
+        const settings = getSettings(interaction.guildId);
         const request = await routeToChannel(interaction, 'absenceRequestChannelId', 'ABSENCE_REQUEST_CHANNEL_ID', { embeds: [branded('🌴 ┃ Ausência Declarada (LOA) • Solicitação', details)], allowedMentions: { users: [] } });
         const requestChannelId = settings.absenceRequestChannelId || process.env.ABSENCE_REQUEST_CHANNEL_ID;
         const recordChannelId = settings.absenceChannelId || process.env.ABSENCE_CHANNEL_ID;
         const record = requestChannelId && requestChannelId === recordChannelId ? { sent: false }
           : await routeToChannel(interaction, 'absenceChannelId', 'ABSENCE_CHANNEL_ID', { embeds: [branded('🌴 ┃ Ausência Declarada (LOA) • Registro', details)], allowedMentions: { users: [] } });
-        const settings = getSettings(interaction.guildId);
         const loaRoleId = settings.absenceRoleId || process.env.ABSENCE_ROLE_ID || '1568855402475552840';
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
         let loaApplied = false;

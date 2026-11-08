@@ -31,7 +31,8 @@ O canal `PROMOTION_REQUEST_CHANNEL_ID` recebe o painel público de solicitação
 |---|---|
 | `/configurar` | Define canal, categoria, cargo ou cargo aprovador. |
 | `/painel` | Publica painel de registro, promoção, tickets ou disciplina. |
-| `/acao` | Publica nome, horário e contingente, com lista de presença e sem aprovação. |
+| `/acao canal:#canal` | Abre o formulário de ação com nome, horário e contingente; publica um painel com confirmação de presença no canal escolhido. Qualquer pessoa pode confirmar sem cargo, informando nome e passaporte. O card lista nome, passaporte e ID Discord; ao atingir o contingente, o botão fecha. |
+| `/promocao` | Abre diretamente o formulário de solicitação de promoção. |
 | `/ausencia` | Abre o formulário de ausência; qualquer membro pode usar. |
 | `/advertir membro` | Abre medida disciplinar para advertência, afastamento ou exoneração. |
 | `/ticket categoria` | Abre canal privado de atendimento. |
